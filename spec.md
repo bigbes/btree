@@ -95,3 +95,4 @@ Part of:
 [An Efficient B-Tree Layer for Flash-Memory Storage Systems](http://lambda.csail.mit.edu/~chet/papers/others/l/log-structured/rtcsa03_btreeflash.pdf)  
 [Don’t Thrash: How to Cache Your Hash on Flash](http://arxiv.org/pdf/1208.0290.pdf)  
 [Dynamical Storage Allocation: A survey and Critical Review](http://www.cs.northwestern.edu/~pdinda/ics-s05/doc/dsa.pdf)  
+[The Ubiquitous B-Trees](http://people.cs.aau.dk/~simas/aalg06/UbiquitBtree.pdf)  
