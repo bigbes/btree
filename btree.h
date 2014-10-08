@@ -2,6 +2,7 @@
 /*
  * 4096 - 4 - 1 - (2*K + 1) * 8 - (K * 128)
  */
+
 /* Must be Odd number */
 #define BTREE_KEY_CNT 3
 #define BTREE_KEY_LEN 128
@@ -46,9 +47,9 @@ struct BTreeNode {
 	size_t   parentPage;
 	uint32_t nKeys;
 	uint8_t  flags;
-	size_t chld[BTREE_CHLD_CNT];
-	char   keys[BTREE_KEY_CNT * BTREE_KEY_LEN];
-	size_t vals[BTREE_KEY_CNT];
+	size_t   chld [BTREE_CHLD_CNT];
+	char     keys [BTREE_KEY_CNT * BTREE_KEY_LEN];
+	size_t   vals [BTREE_KEY_CNT];
 };
 
 struct DB {

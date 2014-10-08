@@ -1,233 +1,189 @@
 #define  _GNU_SOURCE
 
 #include <string.h>
+
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <assert.h>
-#include <errno.h>
 
 #include "btree.h"
-#include "bit/bit.h"
 
 #include <fcntl.h>
-
-#define DEFAULT_PAGE_SIZE 4096
-/* POOL_SIZE MUST BE DIVISIBLE BY PAGE_SIZE */
-#define DEFAULT_POOL_SIZE 134217728
 
 #define DEBUG
 #include "dbg.h"
 
-int _btree_delete(struct PagePool *pp, struct BTreeNode *x, void *key);
-
-/*
- * Get number of bitmask pages
- * */
-inline size_t bitmask_pages(struct PagePool *pp) {
-	size_t ans = pp->pageSize * CHAR_BIT;
-	ans = ceil(((double )pp->nPages) / ans);
-	return ans;
-}
-
-/*
- * Dump bitmask pages to the disk
- * */
-inline int bitmask_dump(struct PagePool *pp) {
-	log_info("Dump bitmask");
-	return pwrite(pp->fd, pp->bitmask, pp->pageSize * bitmask_pages(pp),
-			pp->pageSize);
-}
-
-/*
- * Load bitmask pages from the disk
- * */
-inline int bitmask_load(struct PagePool *pp) {
-	log_info("Load bitmask");
-	return pread(pp->fd, pp->bitmask, pp->pageSize * bitmask_pages(pp),
-			pp->pageSize);
-}
-
-/*
- * Populate bitmask
- * Mark metadata page and BM page
- * */
-int bitmask_populate(struct PagePool *pp) {
-	size_t pagenum = bitmask_pages(pp) + 1;
-	pp->bitmask = (void *)calloc(bitmask_pages(pp) * pp->pageSize, 1);
-	while (pagenum > 0)
-		bit_set(pp->bitmask, --pagenum);
-	bitmask_dump(pp);
-	return 0;
-}
-
-/*
- * Find empty page
- * Returns 0 when can't find empty page
- * */
-size_t page_find_empty(struct PagePool *pp) {
-	size_t pos = 0;
-	while (pos < pp->nPages && bit_test(pp->bitmask, pos))
-		pos++;
-	return (pos == pp->nPages ? 0 : pos);
-}
-
-/*
- * Allocates page
- * Returns 0 on error
- * */
-size_t page_alloc(struct PagePool *pp) {
-	size_t pos = page_find_empty(pp);
-	if (pos == -1)
-		return -1;
-	log_info("Allocating page %zd", pos);
-	bit_set(pp->bitmask, pos);
-	bitmask_dump(pp);
-	return pos;
-}
-
-/*
- * Free page
- * Returns 1 on error
- * */
-int page_free(struct PagePool *pp, size_t pos) {
-	log_info("Freeing page %zd", pos);
-	if (!bit_test(pp->bitmask, pos))
-		return -1;
-	bit_clear(pp->bitmask, pos);
-	bitmask_dump(pp);
-	return 0;
-}
-
-/*
- * Write node to disk
- * Returns 0 on Error
- * */
-inline size_t page_node_write(struct PagePool *pp, struct BTreeNode *node) {
-	log_info("Dumping Node %zd", node->page);
-	int retval = pwrite(pp->fd, node, sizeof(struct BTreeNode),
-			node->page * pp->pageSize);
-	if (retval == -1) {
-		log_err("Writing %zd bytes to page %zd failed\n",
-				pp->pageSize, node->page);
-		log_err("Error while writing %d: %s\n", errno,
-				strerror(errno));
-		return 0;
+/**
+ * @brief      Initialize header (with loaded, or malloced data)
+ * 	       Private API
+ *
+ * @param[in]  db   Current Database instance
+ * @param[out] node Node for initialization
+ * @param[in]  data Data to initialize with (pointer or NULL)
+ *
+ * @return     Pointer to the block after Header
+ */
+void *node_header_init(struct DB *db, struct BTreeNode *node, void *data) {
+	if (data) {
+		pool_read(db->pool, page);
+	} else {
+		node->h = (struct NodeHeader *)malloc(db->pool->pageSize);
+		assert(node->h);
+		node->h->page     = pool_alloc();
+		node->h->size     = 0;
+		node->h->nextPage = 0;
+		node->h->flags    = 0;
 	}
-	return retval;
+	return (void *)node->h + sizeof(struct NodeHeader);
 }
 
-/*
- * Read node from disk
- * Cleanup in the caller
- * Returns NULL on error
- * */
-inline struct BTreeNode *page_node_read(struct PagePool *pp, size_t num) {
-	log_info("Reading Node %zd", num);
-	struct BTreeNode *node = (struct BTreeNode*)calloc(pp->pageSize, 1);
-	int retval = pread(pp->fd, node, pp->pageSize, num * pp->pageSize);
-	if (retval == -1) {
-		log_err("Reading %zd bytes from page %zd failed\n", pp->pageSize, num);
-		log_err("Error while reading %d: %s\n", errno, strerror(errno));
-		free(node);
-		return NULL;
-	}
-	return node;
-}
-
-/*
- * Write data to the disk
- * Returns 1 on error
- * */
-int page_data_write(struct PagePool *pp,
-		void *data, size_t data_len, size_t num) {
-	assert(data_len < BTREE_VAL_LEN);
-	struct DataPageMeta meta = {
-		.dataSize = data_len,
-		.nextPage = 0
-	};
-	ssize_t ans = pwrite(pp->fd, &meta, sizeof(struct DataPageMeta), num * pp->pageSize);
-	assert(ans == sizeof(struct DataPageMeta));
-	ans = write(pp->fd, data, data_len);
-	assert(ans == data_len);
+/**
+ * @brief      Initialize btree node (with loaded, or malloced data)
+ * 	       Private API
+ *
+ * @param[in]  db   Current Database instance
+ * @param[out] node Node for initialization
+ * @param[in]  page Page number for initialization (0 on new node)
+ *
+ * @return     Status
+ */
+int node_btree_load(struct DB *db, struct BTreeNode *node, pageno_t page) {
+	void *data = (page > 0 ? pool_read(db->pool, page) : NULL);
+	node->chld = node_header_init(db, node, data);
+	node->vals = node->chld + ((node->h->size + 1) * sizeof(pageno_t));
+	node->keys = node->vals + (node->h->size * sizeof(pageno_t));
 	return 0;
 }
 
-/*
- * Read data from the disk
- * Cleanup in the caller
- * Return NULL on error
- * */
-inline void *page_data_read(struct PagePool *pp, size_t num, size_t *data_len) {
-	struct DataPageMeta meta;
-	pread(pp->fd, &meta, sizeof(struct DataPageMeta), num * pp->pageSize);
-	*data_len = meta.dataSize;
-	void *data = calloc(meta.dataSize, 1);
-	read(pp->fd, data, meta.dataSize);
-	return data;
+/**
+ * @brief      Initialize data node (with loaded, or malloced data)
+ * 	       Private API
+ *
+ * @param[in]  db   Current Database instance
+ * @param[out] node Node for initialization
+ * @param[in]  page Page number for initialization (0 on new node)
+ *
+ * @return     Status
+ */
+int node_data_load(struct DB *db, struct DataNode *node, pageno_t page) {
+	void *data = (page > 0 ? pool_read(db->pool, page) : NULL);
+	node->data = node_header_init(db, node, data);
+	return 0;
 }
 
-/*
- * Cleanup in the caller
- * Create PagePool
- * */
-struct PagePool *pool_create(char *name) {
-	struct PagePool *pp = (struct PagePool *)calloc(
-		sizeof(struct PagePool),  1);
-	pp->fd = open(name, O_CREAT | O_RDWR,
-			S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-	assert(pp->fd != -1);
-	pp->pageSize = DEFAULT_PAGE_SIZE;
-	pp->nPages = ceil(DEFAULT_POOL_SIZE / DEFAULT_PAGE_SIZE);
-	posix_fallocate(pp->fd, 0, DEFAULT_POOL_SIZE);
-	bitmask_populate(pp);
-		return pp;
+int node_btree_create(struct DB *db, struct DataNode *node,
+		      void *data, size_t data_len, pageno_t page) {
+	node->header = N
 }
 
-/*
- * Find free page, reserve it and map Node with it
- * */
-struct BTreeNode *node_create_reserve(struct PagePool *pp,
-		int is_leaf, size_t parentPage) {
-	size_t page_t = page_alloc(pp); assert(page_t != -1);
-	struct BTreeNode *node  = (struct BTreeNode*)calloc(
-			sizeof(struct BTreeNode), 1);
-	node->nKeys = 0;
-	node->flags = (is_leaf ? IS_LEAF : 0);
-	node->page = page_t;
-	node->parentPage = parentPage;
-	page_node_write(pp, node);
-	return node;
+/**
+ * @brief      Dump btree node to disk
+ * 	       Private API
+ *
+ * @param db   Current Database instance
+ * @param node Node for dumping
+ *
+ * @return     Status
+ */
+int node_btree_dump(struct DB *db, struct BTreeNode *node) {
+	pageno_t page = node->h->page;
+	size_t to_write = db->pool->pageSize;
+	return pool_write(db->pool, node->h, to_write, page);
 }
 
-/*
- * Create DB object
- * Main function.
- * Cleanup in the caller.
- * */
-struct DB *db_create(char *db_name, size_t size) {
-	log_info("Creating DB with name %s and size %zd", db_name, size);
-	struct DB *db =  (struct DB *)calloc(sizeof(struct DB), 1);
+/**
+ * @brief      Dump data node to disk
+ * 	       Private API
+ *
+ * @param db   Current Database instance
+ * @param node Node for dumping
+ *
+ * @return     Status
+ */
+int node_data_dump(struct DB *db, struct DataNode *node) {
+	size_t complete = 0;
+	size_t to_write = node->header->size + sizeof(struct NodeHeader);
+	if (node->data != node->header + sizeof(struct NodeHeader))
+		to_write = sizeof(struct NodeHeader);
+	complete += pool_write(db->pool, node->h, to_write, node->h->page, 0);
+	if (node->data != node->hedaer + sizeof(struct NodeHeader)) {
+		complete += pool_write(db->pool, node->data, db->pool->size,
+				       node->h->page, sizeof(struct NodeHeader));
+	}
+	return complete;
+}
+
+/**
+ * @brief     Free node at position pos
+ *
+ * @param db  DB object
+ * @param pos Position to be freed
+ *
+ * @return    Status
+ */
+int node_free(struct DB *db, pageno_t pos) {
+	return pool_free(db->pool, pos);
+}
+
+/**
+ * @brief     Free node
+ *
+ * @param db  DB object
+ * @param pos (void *)(struct DataNode *) or (void *)(struct BTreeNode *)
+ *            Node to be freed
+ *
+ * @return    Status
+ */
+int node_pointer_free(struct DB *db, void *node) {
+	return node_free(db, (struct DataNode *)node->h->page);
+}
+
+/**
+ * @brief          Initialize DB object
+ *
+ * @param[out] db       Object to initialize
+ * @param[in]  db_name  File for use in Database
+ * @param[in]  pageSize Size of pages to use in PagePool
+ * @param[in]  poolSize Size of pool to use in PagePool
+ *
+ * @return         Status
+ */
+int db_init(struct DB *db, char *db_name,
+		     uint16_t pageSize, pageno_t poolSize) {
+	log_info("Creating DB with name %s", db_name, size);
+	log_info("PoolSize: %zd, PageSize %zd", db_name, size);
 	db->db_name = db_name;
-
-	db->pool = pool_create(db_name);
-	db->top = node_create_reserve(db->pool, 1, 0);
-	return db;
+	db->pool = (struct PagePool *)malloc(sizeof(struct PagePool));
+	assert(db->pool);
+	pool_init(db_name, pageSize, PoolSize);
+	db->top = (struct BTreeNode *)malloc(sizeof(struct BTreeNode));
+	assert(db->top);
+	node_btree_init(db, db->top, 0);
+	return 0;
 }
 
-/*
- * Cleanup function for DB object
- * */
+/**
+ * @brief    Free DB object
+ *
+ * @param db Object to free
+ *
+ * @return   Status
+ */
 int db_free(struct DB *db) {
-	if (db->top) free(db->top);
-	if (db->pool) {
-		if (db->pool->bitmask) free(db->pool->bitmask);
-		if (db->pool->fd) close(db->pool->fd);
-		free(db->pool);
+	if (db) {
+		if (db->top) {
+			free(db->top);
+			db->top = NULL
+		}
+		if (db->pool) {
+			pool_free(db->pool);
+			db->pool = NULL;
+		}
+		free(db);
 	}
-	free(db);
 	return 0;
 }
 
@@ -237,11 +193,14 @@ int db_free(struct DB *db) {
 
 #define NODE_FULL(NODE) (NODE->nKeys == BTREE_KEY_CNT)
 
+int _btree_delete(struct PagePool *pp, struct BTreeNode *x, void *key);
+
 /*
  * Insert data into prepared node
  * */
-int _btree_insert_data(struct PagePool *pp, struct BTreeNode *node,
-		char *val, int val_len, size_t pos) {
+int _btree_insert_data(struct DB *db, struct BTreeNode *node,
+		       char *val, int val_len, size_t pos) {
+	DataNode()
 	size_t page = page_alloc(pp); assert(page != -1);
 	page_data_write(pp, val, val_len, page);
 	node->vals[pos] = page;
@@ -263,7 +222,7 @@ int _btree_replace_data(struct PagePool *pp, struct BTreeNode *node,
  * (move last (node.len - pos) elements to the right)
  * */
 void _btree_insert_into_node_prepare(struct PagePool *pp, struct BTreeNode *node,
-				     char *key, size_t pos, size_t child) {
+		char *key, size_t pos, size_t child) {
 	int isLeaf = node->flags & IS_LEAF;
 	assert(!(isLeaf ^ !child));
 	assert(!NODE_FULL(node));
@@ -662,21 +621,6 @@ int db_print(struct DB *db) {
 
 int main() {
 	struct DB *db = db_create("mydb", 128*1024*1024);
-//	db_print(db);
-	db_insert(db, "568", "4567890", 7);
-//	db_print(db);
-	db_insert(db, "567", "4567890", 7);
-//	db_print(db);
-	db_insert(db, "456", "4567890", 7);
-//	db_print(db);
-	db_insert(db, "345", "4567890", 7);
-//	db_print(db);
-	db_insert(db, "234", "4567890", 7);
-//	db_print(db);
-	db_insert(db, "123", "4567890", 7);
-//	db_print(db);
-	db_delete(db, "123");
-	db_print(db);
 	db_free(db);
 	return 0;
 }
