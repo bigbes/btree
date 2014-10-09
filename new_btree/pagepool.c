@@ -9,12 +9,22 @@
 			* bit_iterator_init
 			* bit_iterator_next
 			*/
-#include <math.h>      /* ceil
-			*/
+#include <math.h>      /* ceil */
 #include <errno.h>     /* strerror
 			* errno
 			*/
+#include <stdlib.h>    /* malloc
+			* calloc
+			*/
+#include <assert.h>    /* assert */
+#include <unistd.h>    /* pread
+			* pwrite
+			*/
+#include <fcntl.h>     /* flags */
 
+#ifdef DEBUG
+	#define malloc( calloc(1,
+#endif
 
 /**
  * Get number of bitmask pages
@@ -31,8 +41,10 @@ static inline pageno_t bitmask_pages(struct PagePool *pp) {
 static int bitmask_it_init(struct PagePool *pp) {
 	if (!pp->it)
 		pp->it = (struct bit_iterator *)malloc(sizeof(struct bit_iterator));
+	assert(pp->it);
 	bit_iterator_init(pp->it, (const void *)pp->bitmask,
 			  pp->pageSize*pp->nPages, false);
+	return 0;
 }
 
 /**
@@ -68,6 +80,7 @@ static int bitmask_populate(struct PagePool *pp) {
 	pageno_t pagenum = bitmask_pages(pp);
 	pp->bitmask = (void *)calloc(bitmask_pages(pp) * pp->pageSize, 1);
 	while (pagenum > 0) bit_set(pp->bitmask, --pagenum);
+	bitmask_it_init(pp);
 	bitmask_dump(pp);
 	return 0;
 }
@@ -107,7 +120,7 @@ pageno_t pool_alloc(struct PagePool *pp) {
  *
  * @return    Status
  */
-int pool_free(struct PagePool *pp, pageno_t pos) {
+int pool_dealloc(struct PagePool *pp, pageno_t pos) {
 	log_info("Freeing page %zd", pos);
 	if (bitmask_check(pp, pos)) return -1;
 	bit_clear(pp->bitmask, pos);
@@ -124,15 +137,17 @@ int pool_free(struct PagePool *pp, pageno_t pos) {
  * @return    Pointer to allocated memory with page content
  *            NULL on error
  */
-void *pool_read(struct PagePool *pp, pageno_t pos) {
-	log_info("Reading Node %zd", num);
-	void *block = malloc(pp->pageSize);
+void *pool_read(struct PagePool *pp, pageno_t pos, size_t offset, size_t size) {
+	assert(size + offset <= pp->pageSize);
+	log_info("Reading Node %zd", pos);
+	if (!size) size = pp->pageSize;
+	void *block = malloc(size);
 	assert(block);
-	int retval = pread(pp->fd, block, pp->pageSize, pos * pp->pageSize);
+	int retval = pread(pp->fd, block, size, pos * pp->pageSize + offset);
 	if (retval == -1) {
-		log_err("Reading %zd bytes from page %zd failed\n", pp->pageSize, num);
+		log_err("Reading %i bytes from page %zd failed\n", pp->pageSize, pos);
 		log_err("Error while reading %d: %s\n", errno, strerror(errno));
-		free(node);
+		free(block);
 		return NULL;
 	}
 	return block;
@@ -150,11 +165,10 @@ void *pool_read(struct PagePool *pp, pageno_t pos) {
  */
 int pool_write(struct PagePool *pp, void *data, size_t size,
 	       pageno_t pos, size_t offset) {
-	assert(size + offset < pp->pageSize);
-	log_info("Dumping Node %zd", page);
+	assert(size + offset <= pp->pageSize);
 	int retval = pwrite(pp->fd, data, size, pos * pp->pageSize + offset);
 	if (retval == -1) {
-		log_err("Writing %zd bytes to page %zd failed\n", to_write, page);
+		log_err("Writing %zd bytes to page %zd failed\n", size, pos);
 		log_err("Error while writing %d: %s\n", errno, strerror(errno));
 		return -1;
 	}
@@ -173,6 +187,7 @@ int pool_write(struct PagePool *pp, void *data, size_t size,
  * @return     Status
  */
 int pool_init(struct PagePool *pp, char *name, uint16_t pageSize, pageno_t poolSize) {
+	memset(pp, 0, sizeof(struct PagePool));
 	pp->fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
 	assert(pp->fd != -1);
 	pp->pageSize = pageSize;
@@ -198,6 +213,10 @@ int pool_free(struct PagePool *pp) {
 	if (pp->bitmask) {
 		free(pp->bitmask);
 		pp->bitmask = NULL;
+	}
+	if (pp->it) {
+		free(pp->it);
+		pp->it = NULL;
 	}
 	free(pp);
 	return 0;

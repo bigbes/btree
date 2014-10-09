@@ -1,16 +1,7 @@
-#include "btree_new.h"
+#ifndef   PAGEPOOL_H
+#define   PAGEPOOL_H
 
-/**
- * @brief Structure for working with on-disk page pool
- */
-struct PagePool {
-	int                  fd;
-	pageno_t             pageSize;
-	size_t               poolSize
-	pageno_t             nPages;
-	void                *bitmask;
-	struct bit_iterator *it;
-};
+#include "btree.h"
 
 /*
 pageno_t bitmask_pages   (struct PagePool *);
@@ -23,15 +14,11 @@ int      bitmask_check   (struct PagePool *, pageno_t);
 pageno_t page_find_empty(struct PagePool *);
 */
 
-pageno_t pool_alloc(struct PagePool *);
-int      pool_free (struct PagePool *);
-void    *pool_read (struct PagePool *, pageno_t);
-int      pool_write(struct PagePool *, void *data, size_t size,
-		    pageno_t, size_t offset);
+pageno_t pool_alloc  (struct PagePool *);
+int      pool_dealloc(struct PagePool *, pageno_t);
+void    *pool_read (struct PagePool *, pageno_t, size_t, size_t);
+int      pool_write(struct PagePool *, void *, size_t, pageno_t, size_t);
 int      pool_init (struct PagePool *, char *, uint16_t pageSize, pageno_t);
 int      pool_free (struct PagePool *);
 
-BTreeNode *read_btree_node (struct PagePool *, pageno_t);
-DataNode  *read_data_node  (struct PagePool *, pageno_t);
-int        write_btree_node(struct PagePool *, struct BTreeNode *);
-int        write_data_node (struct PagePool *, struct DataNode  *);
+#endif /* PAGEPOOL_H */
