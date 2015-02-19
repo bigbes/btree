@@ -1,4 +1,5 @@
 #include "pagepool.h"
+#include "cache.h"
 #include "dbg.h"       /* log_err
 			* log_info
 			*/
@@ -228,7 +229,8 @@ int pool_write(struct PagePool *pp, void *data, size_t size,
  *
  * @return     Status
  */
-int pool_init(struct PagePool *pp, char *name, uint16_t pageSize, pageno_t poolSize) {
+int pool_init(struct PagePool *pp, char *name, uint16_t pageSize,
+	      pageno_t poolSize, size_t cacheSize) {
 	memset(pp, 0, sizeof(struct PagePool));
 	pp->fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
 	assert(pp->fd != -1);
@@ -236,8 +238,9 @@ int pool_init(struct PagePool *pp, char *name, uint16_t pageSize, pageno_t poolS
 	pp->poolSize = poolSize;
 	pp->nPages = ceil(poolSize/pageSize);
 	preallocateFile(pp->fd, poolSize);
-//	fallocate(pp->fd, 0, 0, poolSize);
-//	posix_fallocate(pp->fd, 0, poolSize);
+	pp->cache = (struct CacheBase *)malloc(sizeof(struct CacheBase));
+	cache_init(pp->cache, pp, cacheSize);
+	assert(pp->cache);
 	bitmask_populate(pp);
 	return 0;
 }
@@ -261,6 +264,11 @@ int pool_free(struct PagePool *pp) {
 	if (pp->it) {
 		free(pp->it);
 		pp->it = NULL;
+	}
+	if (pp->cache) {
+		cache_free(pp->cache);
+		free(pp->cache);
+		pp->cache = NULL;
 	}
 	free(pp);
 	return 0;

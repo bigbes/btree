@@ -11,7 +11,6 @@ struct CacheElem {
 	void *cache;
 	int used;
 	struct CacheElem *next;
-	struct CacheElem *prev;
 	UT_hash_handle hh;
 };
 
@@ -25,7 +24,6 @@ struct CacheElem {
  */
 struct CacheBase {
 	struct PagePool *pool;
-	size_t page_size;
 	size_t cache_size;
 	struct CacheElem *list_tail; /* That's where the most popular are */
 	struct CacheElem *list_head; /* That's where the least popular are*/

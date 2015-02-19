@@ -46,17 +46,15 @@ uint32_t data_node_max_capacity(struct DB *db) {
  *
  * @return         Status
  */
-int db_init(struct DB *db, char *db_name, uint16_t pageSize, pageno_t poolSize, size_t cacheSize) {
+int db_init(struct DB *db, char *db_name, uint16_t pageSize,
+	    pageno_t poolSize, size_t cacheSize) {
 	log_info("Creating DB with name %s", db_name);
 	log_info("PoolSize: %zd, PageSize %i", poolSize, pageSize);
 	memset(db, 0, sizeof(struct DB));
 	db->db_name = db_name;
 	db->pool = (struct PagePool *)malloc(sizeof(struct PagePool));
 	assert(db->pool);
-	db->cache = (struct CacheBase *)malloc(sizeof(struct CacheBase));
-	assert(db->cache);
-	pool_init(db->pool, db_name, pageSize, poolSize);
-	cache_init(db->cache, db->pool, cacheSize);
+	pool_init(db->pool, db_name, pageSize, poolSize, cacheSize);
 	db->top = (struct BTreeNode *)malloc(sizeof(struct BTreeNode));
 	assert(db->top);
 	db->btree_degree = btree_node_max_capacity(db);
@@ -83,11 +81,6 @@ int db_free(struct DB *db) {
 	if (db->pool) {
 		pool_free(db->pool);
 		db->pool = NULL;
-	}
-	if (db->cache) {
-		cache_free(db->cache);
-		free(db->cache);
-		db->cache = NULL;
 	}
 	return 0;
 }
@@ -199,13 +192,13 @@ struct DB *dbcreate(char *file, struct DBC *config) {
 int main() {
 	struct DB db;
 	db_init(&db, "mydb", 512, 128*1024*1024, 16*1024*1024);
-	cache_print(db.cache);
+	cache_print(db.pool->cache);
 	db_insert(&db, "1234", "Hello, world1", 13);
 	db_insert(&db, "1235", "Hello, world2", 13);
 	db_insert(&db, "1236", "Hello, world3", 13);
 	db_insert(&db, "1237", "Hello, world4", 13);
 	db_insert(&db, "1238", "Hello, world5", 13);
-	cache_print(db.cache);
+	cache_print(db.pool->cache);
 	db_insert(&db, "1232", "Hello, world6", 13);
 	db_insert(&db, "1231", "Hello, world7", 13);
 	db_insert(&db, "1240", "Hello, world8", 13);
@@ -214,7 +207,7 @@ int main() {
 	db_insert(&db, "1252", "Hello, world8", 13);
 	db_insert(&db, "1253", "Hello, world6", 13);
 	db_insert(&db, "1254", "Hello, world7", 13);
-	cache_print(db.cache);
+	cache_print(db.pool->cache);
 	db_insert(&db, "1255", "Hello, world8", 13);
 	db_insert(&db, "1253", "Hello, world6", 13);
 	db_insert(&db, "1254", "Hello, world7", 13);
@@ -223,7 +216,7 @@ int main() {
 	db_insert(&db, "1257", "Hello, world7", 13);
 	db_insert(&db, "1258", "Hello, world8", 13);
 	db_insert(&db, "1259", "Hello, world6", 13);
-	cache_print(db.cache);
+	cache_print(db.pool->cache);
 	db_insert(&db, "1260", "Hello, world8", 13);
 	db_insert(&db, "1210", "Hello, world7", 13);
 	db_insert(&db, "1209", "Hello, world8", 13);
@@ -231,7 +224,7 @@ int main() {
 	db_insert(&db, "1207", "Hello, world8", 13);
 	db_insert(&db, "1206", "Hello, world6", 13);
 	db_insert(&db, "1205", "Hello, world8", 13);
-	cache_print(db.cache);
+	cache_print(db.pool->cache);
 	db_insert(&db, "1204", "Hello, world7", 13);
 	db_insert(&db, "1203", "Hello, world8", 13);
 	db_insert(&db, "1202", "Hello, world6", 13);
@@ -240,7 +233,7 @@ int main() {
 	db_insert(&db, "121000", "Hello, world8", 13);
 	/*db_delete(&db, "121000");*/
 	db_print(&db);
-	cache_print(db.cache);
+	cache_print(db.pool->cache);
 	char *data = NULL;
 	size_t val = 0;
 	db_search(&db, "1231", (void **)&data, &val);

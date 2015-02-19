@@ -13,11 +13,10 @@
  */
 int btreei_insert_data(struct DB *db, struct BTreeNode *node,
 		       void *val, int val_len, size_t pos) {
-	struct DataNode dnode;
+	struct DataNode dnode = {0};
 	node_data_load(db, &dnode, 0);
-	dnode.data = val;
+	memcpy(dnode.data, val, val_len);
 	dnode.h->size = val_len;
-	dnode.h->flags = IS_DATA;
 	node->vals[pos] = dnode.h->page;
 	node_data_dump(db, &dnode);
 	node_btree_dump(db, node);

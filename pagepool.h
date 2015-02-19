@@ -19,7 +19,7 @@ int      pool_dealloc(struct PagePool *,    pageno_t);
 void    *pool_read   (struct PagePool *,    pageno_t, size_t, size_t);
 int      pool_read_into (struct PagePool *, pageno_t, void *);
 int      pool_write(struct PagePool *, void *, size_t, pageno_t, size_t);
-int      pool_init (struct PagePool *, char *, uint16_t pageSize, pageno_t);
+int      pool_init (struct PagePool *, char *, uint16_t, pageno_t, size_t);
 int      pool_free (struct PagePool *);
 
 #endif /* PAGEPOOL_H */

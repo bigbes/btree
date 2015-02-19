@@ -1,3 +1,5 @@
+#include <assert.h>
+
 #include "dbg.h"
 #include "btree.h"
 #include "cache.h"
@@ -14,7 +16,7 @@
  */
 int node_btree_load(struct DB *db, struct BTreeNode *node, pageno_t page) {
 	if (page == 0) page = pool_alloc(db->pool);
-	void *data = cache_page_get(db->cache, page);
+	void *data = cache_page_get(db->pool->cache, page);
 	node->h = (struct NodeHeader *)data;
 	node->h->page = page;
 	node->chld = (void *)node->h + sizeof(struct NodeHeader);
@@ -34,10 +36,10 @@ int node_btree_load(struct DB *db, struct BTreeNode *node, pageno_t page) {
  */
 int node_data_load(struct DB *db, struct DataNode *node, pageno_t page) {
 	if (page == 0) page = pool_alloc(db->pool);
-	void *data = cache_page_get(db->cache, page);
-	node->h = (struct NodeHeader *)data;
+	node->h = (struct NodeHeader *)cache_page_get(db->pool->cache, page);
 	node->h->page = page;
 	node->h->flags = IS_DATA;
+	node->data = (void *)node->h + sizeof(struct NodeHeader);
 	return 0;
 }
 
@@ -100,6 +102,6 @@ int node_deallocate(struct DB *db, pageno_t pos) {
  * @return     Status
  */
 void node_free(struct DB *db, void *node) {
-	cache_page_free(db->cache, ((struct BTreeNode *)(node))->h->page);
+	cache_page_free(db->pool->cache, ((struct BTreeNode *)(node))->h->page);
 }
 

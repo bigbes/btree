@@ -21,34 +21,40 @@ int cache_init(struct CacheBase *cache, struct PagePool *pool, size_t cache_size
 		alloc = calloc(1, sizeof(struct CacheElem)); assert(alloc);
 		alloc->cache = calloc(1, pool->pageSize);
 		assert(alloc->cache);
-		DL_PREPEND(cache->list_tail, alloc);
+		LL_PREPEND(cache->list_tail, alloc);
 	}
-	return 0;
-}
-
-
-int cache_print(struct CacheBase *cache) {
-	int count = 0; struct CacheElem *temp;
-	DL_COUNT(cache->list_tail, temp, count);
-	printf("==============================\n");
-	printf("Cache stats:\n");
-	printf("Overall pages: %d\n", count);
-	count = 0;
-	DL_FOREACH(cache->list_tail, temp) {
-		if (temp->used == 1) count++;
-	}
-	printf("Used pages: %d\n", count);
-	printf("==============================\n");
 	return 0;
 }
 
 int cache_free(struct CacheBase *cache) {
 	struct CacheElem *el1, *el2;
-	el2 = cache->list_tail;
-	while ((el1 = el2)) {
-		el2 = el1->next;
-		free(el1->cache);
-		free(el1);
+	HASH_ITER(hh, cache->hash, el1, el2) {
+		HASH_DEL(cache->hash, el1);
 	}
+	el1 = cache->list_tail;
+	while ((el2 = el1)) {
+		el1 = el2->next;
+		free(el2->cache);
+		free(el2);
+	}
+	cache->pool = NULL;
+	cache->list_tail = NULL;
+	cache->list_head = NULL;
+	cache->hash = NULL;
+	return 0;
+}
+
+int cache_print(struct CacheBase *cache) {
+	int count = 0; struct CacheElem *temp;
+	LL_COUNT(cache->list_tail, temp, count);
+	printf("==============================\n");
+	printf("Cache stats:\n");
+	printf("Overall pages: %d\n", count);
+	count = 0;
+	LL_FOREACH(cache->list_tail, temp) {
+		if (temp->used == 1) count++;
+	}
+	printf("Used pages: %d\n", count);
+	printf("==============================\n");
 	return 0;
 }

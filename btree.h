@@ -37,6 +37,7 @@ struct PagePool {
 	pageno_t             nPages;
 	void                *bitmask;
 	struct bit_iterator *it;
+	struct CacheBase    *cache;
 };
 
 struct NodeHeader {
@@ -60,7 +61,6 @@ struct DataNode {
 struct DB {
 	char             *db_name;
 	struct PagePool  *pool;
-	struct CacheBase *cache;
 	struct BTreeNode *top;
 	pageno_t          btree_degree;
 };

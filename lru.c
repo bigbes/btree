@@ -10,18 +10,13 @@ static int find_unused(struct CacheElem *l1, struct CacheElem *l2) {
 }
 
 struct CacheElem *lru_page_get_free(struct CacheBase *cache) {
-	log_warn("lru_page_get_free\n");
 	struct CacheElem *retval = NULL;
 	struct CacheElem temp; temp.used = 0;
-	DL_SEARCH(cache->list_tail, retval, &temp, find_unused);
+	LL_SEARCH(cache->list_tail, retval, &temp, find_unused);
 	assert(retval);
-/*	if (retval = NULL) {
-		return NULL;
-	}*/
-	DL_DELETE(cache->list_tail, retval);
+	LL_DELETE(cache->list_tail, retval);
 	retval->used = 1;
-	log_warn("retval_addr: %p\n", (void *)retval);
-	DL_APPEND(cache->list_head, retval);
+	LL_APPEND(cache->list_head, retval);
 	return retval;
 }
 
@@ -34,6 +29,9 @@ void *lru_page_get(struct CacheBase *cache, pageno_t page) {
 		elem->used = 1;
 		HASH_ADD_INT(cache->hash, id, elem);
 		pool_read_into(cache->pool, page, elem->cache);
+		log_info("Getting page %zd from disk", page);
+	} else {
+		log_info("Getting page %zd from memory", page);
 	}
 	return elem->cache;
 }
