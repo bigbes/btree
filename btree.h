@@ -1,18 +1,26 @@
 #ifndef   BTREE_H
 #define   BTREE_H
 
+#include <unistd.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #define BTREE_KEY_LEN 128
 
-typedef size_t pageno_t;
+#define NODE_KEY_POS(NODE, POS)  NODE->keys + (POS) * BTREE_KEY_LEN
+#define NODE_CHLD_POS(NODE, POS) NODE->chld + (POS)
+#define NODE_VAL_POS(NODE, POS)  NODE->vals + (POS)
+
+#define NODE_FULL(DB, NODE) (NODE->h->size == DB->btree_degree)
+#define NODE_HALF(DB)       floor(DB->btree_degree/2)
+
+typedef ssize_t pageno_t;
 
 enum NodeFlags {
 	IS_LEAF = 0x01,
 	IS_TOP  = 0x02,
 	IS_DATA = 0x04,
-	IS_CONT = 0x08,
+/*	____RES = 0x08,*/
 /*	____RES = 0x10,*/
 /*	____RES = 0x20,*/
 /*	____RES = 0x40,*/
@@ -35,7 +43,6 @@ struct NodeHeader {
 	pageno_t page;
 	uint8_t  flags;
 	uint32_t size;
-	pageno_t nextPage;
 };
 
 struct BTreeNode {
@@ -47,12 +54,13 @@ struct BTreeNode {
 
 struct DataNode {
 	struct NodeHeader *h;
-	char    *data;
+	char  *data;
 };
 
 struct DB {
 	char             *db_name;
 	struct PagePool  *pool;
+	struct CacheBase *cache;
 	struct BTreeNode *top;
 	pageno_t          btree_degree;
 };
@@ -65,7 +73,6 @@ int node_data_load    (struct DB *, struct DataNode *, pageno_t);
 int node_data_dump    (struct DB *, struct DataNode *);
 int node_free         (struct DB *db, void *node)
 int node_deallocate         (struct DB *db, pageno_t pos)
-int node_pointer_deallocate (struct DB *db, void *node)
 */
 
 #endif /* BTREE_H */

@@ -1,5 +1,7 @@
 *.a
 *.so
+*.out.dSYM
+*.so.dSYM
 *.pyc
 
 *.in

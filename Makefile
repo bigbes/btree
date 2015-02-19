@@ -1,14 +1,15 @@
 all:
-	gcc btree.c pagepool.c -std=c99 -shared -fPIC -o libmydb.so
-
-gen_workload:
-	@make -C example
-	@python test/gen_workload.py --output workload
-	@python test/runner.py --new --workload workload.in --so example/libdbsophia.so
-
-gen_workload_custom:
-	@python test/gen_workload.py --output workload --config example/example.schema.yml
-	@python test/runner.py --new --workload workload.in --so example/libdbsophia.so
-
-runner:
-	@python test/runner.py --workload workload.in --so ./libmydb.so
+	gcc btree.c pagepool.c cache.c lru.c node.c \
+		search.c insert.c delete.c \
+		-std=c99 -g -O0 -ggdb -Wall \
+		-I./third_party/
+lib:
+	gcc btree.c pagepool.c cache.c lru.c node.c \
+		search.c insert.c delete.c \
+		-std=c99 -g -O0 -ggdb -Wall \
+		-shared -fPIC -I./third_party/
+libopt:
+	gcc btree.c pagepool.c cache.c lru.c node.c \
+		search.c insert.c delete.c \
+		-std=c99 -DNDEBUG -O2 -Wall \
+		-shared -fPIC -I./third_party/

@@ -2,7 +2,7 @@
 #include "dbg.h"       /* log_err
 			* log_info
 			*/
-#include "bit/bit.h"   /* bit_set
+#include <bit.h>       /* bit_set
 			* bit_test
 			* bit_clear
 			* struct bit_iterator
@@ -27,6 +27,26 @@
 #ifdef DEBUG
 	#define malloc( calloc(1,
 #endif
+
+static int preallocateFile(int fd, uint64_t length) {
+#ifdef HAVE_FALLOCATE
+	return fallocate( fd, 0, offset, length );
+#elif defined(__linux__)
+	return posix_fallocate( fd, 0, length );
+#elif defined(__APPLE__)
+	fstore_t fst;
+	fst.fst_flags = F_ALLOCATECONTIG;
+	fst.fst_posmode = F_PEOFPOSMODE;
+	fst.fst_offset = 0;
+	fst.fst_length = length;
+	fst.fst_bytesalloc = 0;
+	return fcntl( fd, F_PREALLOCATE, &fst );
+#else
+	# warning no known method to preallocate files on this platform
+	return -1;
+#endif
+}
+
 
 /**
  * Get number of bitmask pages
@@ -60,12 +80,12 @@ static inline int bitmask_dump(struct PagePool *pp) {
 /**
  * Load bitmask pages from the disk
  */
-static inline ssize_t bitmask_load(struct PagePool *pp) {
+/*static inline ssize_t bitmask_load(struct PagePool *pp) {
 	log_info("Load bitmask");
 	ssize_t ans = pread(pp->fd, pp->bitmask, pp->pageSize * bitmask_pages(pp), 0);
 	bitmask_it_init(pp);
 	return ans;
-}
+}*/
 
 /**
  * Check page (used or not)
@@ -147,12 +167,32 @@ void *pool_read(struct PagePool *pp, pageno_t pos, size_t offset, size_t size) {
 	assert(block);
 	int retval = pread(pp->fd, block, size, pos * pp->pageSize + offset);
 	if (retval == -1) {
-		log_err("Reading %i bytes from page %zd failed\n", pp->pageSize, pos);
+		log_err("Reading %zd bytes from page %zd failed\n", size, pos);
 		log_err("Error while reading %d: %s\n", errno, strerror(errno));
-		free(block);
+		//free(block);
 		return NULL;
 	}
 	return block;
+}
+
+/**
+ * @brief     Read page content from disk
+ *
+ * @param pp  PagePool instance
+ * @param pos Page to be read
+ *
+ * @return    Pointer to allocated memory with page content
+ *            NULL on error
+ */
+int pool_read_into(struct PagePool *pp, pageno_t pos, void *buffer) {
+	log_info("Reading Node %zd into buffer", pos);
+	int retval = pread(pp->fd, buffer, pp->pageSize, pos * pp->pageSize);
+	if (retval == -1) {
+		log_err("Reading %i bytes from page %zd failed\n", pp->pageSize, pos);
+		log_err("Error while reading %d: %s\n", errno, strerror(errno));
+		return -1;
+	}
+	return 0;
 }
 
 /**
@@ -195,7 +235,9 @@ int pool_init(struct PagePool *pp, char *name, uint16_t pageSize, pageno_t poolS
 	pp->pageSize = pageSize;
 	pp->poolSize = poolSize;
 	pp->nPages = ceil(poolSize/pageSize);
-	posix_fallocate(pp->fd, 0, poolSize);
+	preallocateFile(pp->fd, poolSize);
+//	fallocate(pp->fd, 0, 0, poolSize);
+//	posix_fallocate(pp->fd, 0, poolSize);
 	bitmask_populate(pp);
 	return 0;
 }
