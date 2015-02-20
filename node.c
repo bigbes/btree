@@ -15,13 +15,14 @@
  * @return     Status
  */
 int node_btree_load(struct DB *db, struct BTreeNode *node, pageno_t page) {
-	if (page == 0) page = pool_alloc(db->pool);
-	void *data = cache_page_get(db->pool->cache, page);
-	node->h = (struct NodeHeader *)data;
-	node->h->page = page;
+	int page_new = (page == 0 ? 1 : 0);
+	if (page_new) page = pool_alloc(db->pool);
+	node->h = (struct NodeHeader *)cache_page_get(db->pool->cache, page);
 	node->chld = (void *)node->h + sizeof(struct NodeHeader);
 	node->vals = (void *)(node->chld + (db->btree_degree + 1));
 	node->keys = (void *)(node->vals + db->btree_degree);
+	if (page_new) memset(node->h, 0, db->pool->page_size);
+	node->h->page = page;
 	return 0;
 }
 
@@ -35,11 +36,13 @@ int node_btree_load(struct DB *db, struct BTreeNode *node, pageno_t page) {
  * @return     Status
  */
 int node_data_load(struct DB *db, struct DataNode *node, pageno_t page) {
-	if (page == 0) page = pool_alloc(db->pool);
+	int page_new = (page == 0 ? 1 : 0);
+	if (page_new) page = pool_alloc(db->pool);
 	node->h = (struct NodeHeader *)cache_page_get(db->pool->cache, page);
+	node->data = (void *)node->h + sizeof(struct NodeHeader);
+	if (page_new) memset(node->h, 0, db->pool->page_size);
 	node->h->page = page;
 	node->h->flags = IS_DATA;
-	node->data = (void *)node->h + sizeof(struct NodeHeader);
 	return 0;
 }
 
@@ -54,7 +57,7 @@ int node_data_load(struct DB *db, struct DataNode *node, pageno_t page) {
 int node_btree_dump(struct DB *db, struct BTreeNode *node) {
 	log_info("Dumping BTreeNode %zd", node->h->page);
 	pageno_t page = node->h->page;
-	size_t to_write = db->pool->pageSize;
+	size_t to_write = db->pool->page_size;
 	return pool_write(db->pool, node->h, to_write, page, 0);
 }
 

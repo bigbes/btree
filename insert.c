@@ -11,7 +11,7 @@
  *
  * @return Status
  */
-int btreei_insert_data(struct DB *db, struct BTreeNode *node,
+static int btreei_insert_data(struct DB *db, struct BTreeNode *node,
 		       void *val, int val_len, size_t pos) {
 	struct DataNode dnode = {0};
 	node_data_load(db, &dnode, 0);
@@ -29,7 +29,7 @@ int btreei_insert_data(struct DB *db, struct BTreeNode *node,
  *
  * @return Status
  */
-int btreei_replace_data(struct DB *db, struct BTreeNode *node,
+static int btreei_replace_data(struct DB *db, struct BTreeNode *node,
 		char *val, int val_len, size_t pos) {
 	node_deallocate(db, node->vals[pos]);
 	btreei_insert_data(db, node, val, val_len, pos);
@@ -39,7 +39,7 @@ int btreei_replace_data(struct DB *db, struct BTreeNode *node,
 /**
  * @brief Prepare node for inserting data
  */
-void btreei_insert_into_node_prepare(struct DB *db, struct BTreeNode *node,
+static void btreei_insert_into_node_prepare(struct DB *db, struct BTreeNode *node,
 				     char *key, size_t pos, size_t child) {
 	int isLeaf = node->h->flags & IS_LEAF;
 	assert(!(isLeaf ^ !child) || NODE_FULL(db, node));
@@ -64,7 +64,7 @@ void btreei_insert_into_node_prepare(struct DB *db, struct BTreeNode *node,
  *
  * @return Status
  */
-int btreei_insert_into_node_sp(struct DB *db, struct BTreeNode *node, char *key,
+static int btreei_insert_into_node_sp(struct DB *db, struct BTreeNode *node, char *key,
 			size_t data_page, size_t pos, size_t child) {
 	btreei_insert_into_node_prepare(db, node, key, pos, child);
 	node->vals[pos] = data_page;
@@ -76,7 +76,7 @@ int btreei_insert_into_node_sp(struct DB *db, struct BTreeNode *node, char *key,
  *
  * @return Status
  */
-int btreei_insert_into_node_ss(struct DB *db, struct BTreeNode *node, char *key,
+static int btreei_insert_into_node_ss(struct DB *db, struct BTreeNode *node, char *key,
 			char *val, int val_len, size_t pos, size_t child) {
 	btreei_insert_into_node_prepare(db, node, key, pos, child);
 	btreei_insert_data(db, node, val, val_len, pos);
@@ -88,7 +88,7 @@ int btreei_insert_into_node_ss(struct DB *db, struct BTreeNode *node, char *key,
  *
  * @return Status
  */
-int btreei_split_node(struct DB *db,
+static int btreei_split_node(struct DB *db,
 		struct BTreeNode *parent,
 		struct BTreeNode *node) {
 	assert(!(parent && NODE_FULL(db, parent)));

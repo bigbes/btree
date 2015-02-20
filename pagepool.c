@@ -36,12 +36,12 @@ static int preallocateFile(int fd, uint64_t length) {
 	return posix_fallocate( fd, 0, length );
 #elif defined(__APPLE__)
 	fstore_t fst;
-	fst.fst_flags = F_ALLOCATECONTIG;
+	fst.fst_flags = F_ALLOCATEALL;
 	fst.fst_posmode = F_PEOFPOSMODE;
 	fst.fst_offset = 0;
 	fst.fst_length = length;
 	fst.fst_bytesalloc = 0;
-	return fcntl( fd, F_PREALLOCATE, &fst );
+	return fcntl(fd, F_PREALLOCATE, &fst);
 #else
 	# warning no known method to preallocate files on this platform
 	return -1;
@@ -53,7 +53,7 @@ static int preallocateFile(int fd, uint64_t length) {
  * Get number of bitmask pages
  */
 static inline pageno_t bitmask_pages(struct PagePool *pp) {
-	pageno_t ans = pp->pageSize * CHAR_BIT;
+	pageno_t ans = pp->page_size * CHAR_BIT;
 	ans = ceil(((double )pp->nPages) / ans);
 	return ans;
 }
@@ -64,10 +64,12 @@ static inline pageno_t bitmask_pages(struct PagePool *pp) {
 static int bitmask_it_init(struct PagePool *pp) {
 	if (!pp->it)
 		pp->it = (struct bit_iterator *)malloc(sizeof(struct bit_iterator));
-	assert(pp->it);
+	check_mem(pp->it, sizeof(struct bit_iterator));
 	bit_iterator_init(pp->it, (const void *)pp->bitmask,
-			  pp->pageSize*pp->nPages, false);
+			  pp->page_size*pp->nPages, false);
 	return 0;
+error:
+	exit(-1);
 }
 
 /**
@@ -75,18 +77,24 @@ static int bitmask_it_init(struct PagePool *pp) {
  */
 static inline int bitmask_dump(struct PagePool *pp) {
 	log_info("Dump bitmask");
-	return pwrite(pp->fd, pp->bitmask, pp->pageSize * bitmask_pages(pp), 0);
+	ssize_t retval = pwrite(pp->fd, pp->bitmask, pp->page_size * bitmask_pages(pp), 0);
+	check_diskw(retval, pp->page_size * bitmask_pages(pp));
+	return retval;
+error:
+	exit(-1);
 }
 
 /**
  * Load bitmask pages from the disk
  */
-/*static inline ssize_t bitmask_load(struct PagePool *pp) {
+static inline ssize_t bitmask_load(struct PagePool *pp) {
 	log_info("Load bitmask");
-	ssize_t ans = pread(pp->fd, pp->bitmask, pp->pageSize * bitmask_pages(pp), 0);
-	bitmask_it_init(pp);
-	return ans;
-}*/
+	ssize_t retval = pread(pp->fd, pp->bitmask, pp->page_size * bitmask_pages(pp), 0);
+	check_diskr(retval, pp->page_size * bitmask_pages(pp));
+	return retval;
+error:
+	exit(-1);
+}
 
 /**
  * Check page (used or not)
@@ -96,15 +104,14 @@ static inline bool bitmask_check(struct PagePool *pp, pageno_t n) {
 }
 
 /**
- * Populate bitmask
+ * Initialize bitmask
  * Mark metadata page and BM page
  */
-static int bitmask_populate(struct PagePool *pp) {
+static int bitmask_init(struct PagePool *pp) {
 	pageno_t pagenum = bitmask_pages(pp);
-	pp->bitmask = (void *)calloc(bitmask_pages(pp) * pp->pageSize, 1);
 	while (pagenum > 0) bit_set(pp->bitmask, --pagenum);
-	bitmask_it_init(pp);
 	bitmask_dump(pp);
+	bitmask_it_init(pp);
 	return 0;
 }
 
@@ -160,40 +167,13 @@ int pool_dealloc(struct PagePool *pp, pageno_t pos) {
  * @return    Pointer to allocated memory with page content
  *            NULL on error
  */
-void *pool_read(struct PagePool *pp, pageno_t pos, size_t offset, size_t size) {
-	assert(size + offset <= pp->pageSize);
-	log_info("Reading Node %zd", pos);
-	if (!size) size = pp->pageSize;
-	void *block = malloc(size);
-	assert(block);
-	int retval = pread(pp->fd, block, size, pos * pp->pageSize + offset);
-	if (retval == -1) {
-		log_err("Reading %zd bytes from page %zd failed\n", size, pos);
-		log_err("Error while reading %d: %s\n", errno, strerror(errno));
-		//free(block);
-		return NULL;
-	}
-	return block;
-}
-
-/**
- * @brief     Read page content from disk
- *
- * @param pp  PagePool instance
- * @param pos Page to be read
- *
- * @return    Pointer to allocated memory with page content
- *            NULL on error
- */
-int pool_read_into(struct PagePool *pp, pageno_t pos, void *buffer) {
+int pool_read(struct PagePool *pp, pageno_t pos, void *buffer) {
 	log_info("Reading Node %zd into buffer", pos);
-	int retval = pread(pp->fd, buffer, pp->pageSize, pos * pp->pageSize);
-	if (retval == -1) {
-		log_err("Reading %i bytes from page %zd failed\n", pp->pageSize, pos);
-		log_err("Error while reading %d: %s\n", errno, strerror(errno));
-		return -1;
-	}
+	ssize_t retval = pread(pp->fd, buffer, pp->page_size, pos * pp->page_size);
+	check_diskpr(retval, pp->page_size, pos);
 	return 0;
+error:
+	exit(-1);
 }
 
 /**
@@ -208,14 +188,12 @@ int pool_read_into(struct PagePool *pp, pageno_t pos, void *buffer) {
  */
 int pool_write(struct PagePool *pp, void *data, size_t size,
 	       pageno_t pos, size_t offset) {
-	assert(size + offset <= pp->pageSize);
-	int retval = pwrite(pp->fd, data, size, pos * pp->pageSize + offset);
-	if (retval == -1) {
-		log_err("Writing %zd bytes to page %zd failed\n", size, pos);
-		log_err("Error while writing %d: %s\n", errno, strerror(errno));
-		return -1;
-	}
+	assert(size + offset <= pp->page_size);
+	ssize_t retval = pwrite(pp->fd, data, size, pos * pp->page_size + offset);
+	check_diskpw(retval, pp->page_size, pos);
 	return retval;
+error:
+	exit(-1);
 }
 
 
@@ -224,25 +202,55 @@ int pool_write(struct PagePool *pp, void *data, size_t size,
  *
  * @param[out] pp       PagePool object to instanciate
  * @param[in]  name     Name of file to be used for storage
- * @param[in]  pageSize Size of page
- * @param[in]  poolSize Size of file
+ * @param[in]  page_size Size of page
+ * @param[in]  pool_size Size of file
  *
  * @return     Status
  */
-int pool_init(struct PagePool *pp, char *name, uint16_t pageSize,
-	      pageno_t poolSize, size_t cacheSize) {
+static int pooli_init(struct PagePool *pp, char *name, uint16_t page_size,
+	              pageno_t pool_size, size_t cache_size) {
 	memset(pp, 0, sizeof(struct PagePool));
-	pp->fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-	assert(pp->fd != -1);
-	pp->pageSize = pageSize;
-	pp->poolSize = poolSize;
-	pp->nPages = ceil(poolSize/pageSize);
-	preallocateFile(pp->fd, poolSize);
+	pp->page_size = page_size;
+	pp->pool_size = pool_size;
+	pp->nPages = ceil(pool_size/page_size);
+
 	pp->cache = (struct CacheBase *)malloc(sizeof(struct CacheBase));
-	cache_init(pp->cache, pp, cacheSize);
-	assert(pp->cache);
-	bitmask_populate(pp);
+	check_mem(pp->cache, sizeof(struct CacheBase));
+	cache_init(pp->cache, pp, cache_size);
+
+	pp->bitmask = (void *)calloc(bitmask_pages(pp) * pp->page_size, 1);
+	check_mem(pp->bitmask, bitmask_pages(pp) * pp->page_size);
+
 	return 0;
+error:
+	exit(-1);
+}
+
+int pool_init_new(struct PagePool *pp, char *name, uint16_t page_size,
+	          pageno_t pool_size, size_t cache_size) {
+	pooli_init(pp, name, page_size, pool_size, cache_size);
+
+	pp->fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+	check(pp->fd != -1, "Can't open file '%s' for read/write", name);
+	check(preallocateFile(pp->fd, pool_size) != -1, "Can't preallocate file '%s'", name);
+
+	bitmask_init(pp);
+	return 0;
+error:
+	exit(-1);
+}
+
+int pool_init_old(struct PagePool *pp, char *name, uint16_t page_size,
+	          pageno_t pool_size, size_t cache_size) {
+	pooli_init(pp, name, page_size, pool_size, cache_size);
+
+	pp->fd = open(name, O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+	check(pp->fd != -1, "Can't open file '%s' for read/write", name);
+
+	bitmask_load(pp);
+	return 0;
+error:
+	exit(-1);
 }
 
 /**
@@ -254,7 +262,8 @@ int pool_init(struct PagePool *pp, char *name, uint16_t pageSize,
  */
 int pool_free(struct PagePool *pp) {
 	if (pp->fd) {
-		close(pp->fd);
+		pp->fd = close(pp->fd);
+		check(pp->fd != -1, "Failed to close file descriptor for PagePool");
 		pp->fd = 0;
 	}
 	if (pp->bitmask) {
@@ -272,4 +281,6 @@ int pool_free(struct PagePool *pp) {
 	}
 	free(pp);
 	return 0;
+error:
+	exit(-1);
 }

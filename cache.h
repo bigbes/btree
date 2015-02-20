@@ -9,8 +9,11 @@
 struct CacheElem {
 	pageno_t id;
 	void *cache;
-	int used;
+	int flag;
+#define CACHE_USED  0x01
+#define CACHE_DIRTY 0x02
 	struct CacheElem *next;
+	struct CacheElem *dup_of;
 	UT_hash_handle hh;
 };
 
@@ -30,14 +33,13 @@ struct CacheBase {
 	struct CacheElem *hash;      /* HashTable for fast search of preloaded pages */
 };
 
-int             cache_init         (struct CacheBase *cache, struct PagePool *pool,
-				    size_t cache_size);
-int             cache_free         (struct CacheBase *cache);
-int 		cache_print	   (struct CacheBase *cache);
-typedef void  *(*cache_read_t)     (struct PagePool *cache, pageno_t page,
-				    size_t size, size_t offset);
-typedef void  *(*cache_get_t)      (struct CacheBase *cache);
-typedef void  *(*cache_get_free_t) (struct CacheBase *cache);
+int               cache_init         (struct CacheBase *cache, struct PagePool *pool,
+				      size_t cache_size);
+int               cache_free         (struct CacheBase *cache);
+int 		  cache_print	     (struct CacheBase *cache);
+
+struct CacheElem *cachei_page_alloc   (struct CacheBase *cache);
+int 		  cachei_page_free    (struct CacheElem *elem );
 
 #ifndef   LRU
 #  define   LRU

@@ -6,7 +6,7 @@
 #include "btree.h"
 #include "delete.h"
 
-int btreei_delete_replace_max(struct DB *db, struct BTreeNode *node,
+static int btreei_delete_replace_max(struct DB *db, struct BTreeNode *node,
 		size_t pos, struct BTreeNode *left) {
 	struct BTreeNode *left_bkp = left;
 	struct BTreeNode  left_new;
@@ -22,7 +22,7 @@ int btreei_delete_replace_max(struct DB *db, struct BTreeNode *node,
 	return 0;
 }
 
-int btreei_delete_replace_min(struct DB *db, struct BTreeNode *node,
+static int btreei_delete_replace_min(struct DB *db, struct BTreeNode *node,
 		              size_t pos, struct BTreeNode *right) {
 	struct BTreeNode *right_bkp = right;
 	struct BTreeNode  right_new;
@@ -38,7 +38,7 @@ int btreei_delete_replace_min(struct DB *db, struct BTreeNode *node,
 	return 0;
 }
 
-int btreei_merge_nodes(struct DB *db, struct BTreeNode *node, size_t pos,
+static int btreei_merge_nodes(struct DB *db, struct BTreeNode *node, size_t pos,
 		       struct BTreeNode *left, struct BTreeNode *right) {
 	memcpy(NODE_KEY_POS(node, pos), NODE_KEY_POS(left, left->h->size), BTREE_KEY_LEN);
 	left->vals[left->h->size] = node->vals[pos];
@@ -61,7 +61,7 @@ int btreei_merge_nodes(struct DB *db, struct BTreeNode *node, size_t pos,
 	return 0;
 }
 
-int btreei_transfuse_to_left(struct DB *db, struct BTreeNode *node,
+static int btreei_transfuse_to_left(struct DB *db, struct BTreeNode *node,
 		size_t pos, struct BTreeNode *to, struct BTreeNode *from) {
 	/*
 	 * node->pos_key -> append(to, key)
@@ -85,11 +85,11 @@ int btreei_transfuse_to_left(struct DB *db, struct BTreeNode *node,
 	return 0;
 }
 
-int btreei_transfuse_to_right(struct DB *db, struct BTreeNode *node,
+static int btreei_transfuse_to_right(struct DB *db, struct BTreeNode *node,
 		size_t pos, struct BTreeNode *to, struct BTreeNode *from) {
 	/*
 	 * node->pos_key -> append(to, key)
-	 * from->begin_key -> node->pos_key
+/	 * from->begin_key -> node->pos_key
 	 * from->begin_chld -> append(to, chld)
 	 * */
 	memcpy(NODE_KEY_POS(to, 1), NODE_KEY_POS(to, 0),

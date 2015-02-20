@@ -16,6 +16,7 @@
 
 #define DEBUG
 #include "dbg.h"
+#include "meta.h"
 #include "node.h"
 #include "btree.h"
 #include "cache.h"
@@ -26,14 +27,30 @@
 #include "delete.h"
 
 uint32_t btree_node_max_capacity(struct DB *db) {
-	double size  = db->pool->pageSize;
+	double size  = db->pool->page_size;
 	size -= sizeof(struct NodeHeader) - sizeof(pageno_t);
 	size /= 2 * sizeof(pageno_t) + BTREE_KEY_LEN;
 	return (uint32_t )floor(size);
 }
 
 uint32_t data_node_max_capacity(struct DB *db) {
-	return (uint32_t )(db->pool->pageSize - sizeof(struct NodeHeader));
+	return (uint32_t )(db->pool->page_size - sizeof(struct NodeHeader));
+}
+
+int dbi_init(struct DB *db, char *db_name, uint16_t page_size,
+	     pageno_t pool_size, size_t cache_size) {
+	memset(db, 0, sizeof(struct DB));
+	db->db_name = db_name;
+
+	db->pool = (struct PagePool *)malloc(sizeof(struct PagePool));
+	check_mem(db->pool, sizeof(struct PagePool));
+	
+	db->top = (struct BTreeNode *)malloc(sizeof(struct BTreeNode));
+	check_mem(db->top, sizeof(struct BTreeNode));
+	
+	return 0;
+error:
+	exit(-1);
 }
 
 /**
@@ -41,25 +58,40 @@ uint32_t data_node_max_capacity(struct DB *db) {
  *
  * @param[out] db       Object to initialize
  * @param[in]  db_name  File for use in Database
- * @param[in]  pageSize Size of pages to use in PagePool
- * @param[in]  poolSize Size of pool to use in PagePool
+ * @param[in]  page_size Size of pages to use in PagePool
+ * @param[in]  pool_size Size of pool to use in PagePool
  *
  * @return         Status
  */
-int db_init(struct DB *db, char *db_name, uint16_t pageSize,
-	    pageno_t poolSize, size_t cacheSize) {
+int db_init(struct DB *db, char *db_name, uint16_t page_size,
+	    pageno_t pool_size, size_t cache_size) {
 	log_info("Creating DB with name %s", db_name);
-	log_info("PoolSize: %zd, PageSize %i", poolSize, pageSize);
-	memset(db, 0, sizeof(struct DB));
-	db->db_name = db_name;
-	db->pool = (struct PagePool *)malloc(sizeof(struct PagePool));
-	assert(db->pool);
-	pool_init(db->pool, db_name, pageSize, poolSize, cacheSize);
-	db->top = (struct BTreeNode *)malloc(sizeof(struct BTreeNode));
-	assert(db->top);
+	log_info("PoolSize: %zd, PageSize %i", pool_size, page_size);
+
+	dbi_init(db, db_name, page_size, pool_size, cache_size);
+	pool_init_new(db->pool, db_name, page_size, pool_size, cache_size);
 	db->btree_degree = btree_node_max_capacity(db);
 	node_btree_load(db, db->top, 0);
 	db->top->h->flags = IS_TOP | IS_LEAF;
+
+	struct DBC dbc = {page_size, pool_size, cache_size};
+	meta_dump(db_name, &dbc);
+	return 0;
+}
+
+int db_load(struct DB *db, char *db_name, size_t cache_size) {
+	log_info("Loading DB with name %s", db_name);
+
+	struct DBC dbc = {0,0,0};
+	meta_load(db_name, &dbc);
+	if (cache_size) dbc.cache_size = cache_size;
+	log_info("PoolSize: %zd, PageSize %zd", dbc.pool_size, dbc.page_size);
+
+	dbi_init(db, db_name, dbc.page_size, dbc.pool_size, dbc.cache_size);
+	pool_init_old(db->pool, db_name, dbc.page_size, dbc.pool_size, dbc.cache_size);
+	db->btree_degree = btree_node_max_capacity(db);
+	node_btree_load(db, db->top, 0);
+
 	return 0;
 }
 
@@ -117,6 +149,7 @@ int db_delete(struct DB *db, char *key) {
 	return btreei_delete(db, db->top, key);
 }
 
+/* ######################## DEBUG ######################## */
 int node_print(struct BTreeNode *node) {
 #ifdef DEBUG
 	printf("--------------------------------------\n");
@@ -158,6 +191,7 @@ int db_print(struct DB *db) {
 	printf("=====================================================\n");
 	return retcode;
 }
+/* ######################## DEBUG ######################## */
 
 void db_close(struct DB *db) {
 	return;
@@ -177,21 +211,24 @@ int db_put(struct DB *db, void *key, size_t key_len,
 	return db_insert(db, key, val, val_len);
 }
 
-struct DBC {
-	size_t db_size;
-	size_t chunk_size;
-	size_t cache_size;
-};
-
 struct DB *dbcreate(char *file, struct DBC *config) {
 	struct DB *db = (struct DB *)malloc(sizeof(struct DB));
-	db_init(db, file, config->chunk_size, config->db_size, config->cache_size);
+	int db_exists = access(file, F_OK);
+	int dbmeta_exists = meta_check(file);
+	if (db_exists == 0) {
+		check(dbmeta_exists == 0, "No metafile exists, but DB exists. Exiting");
+		db_load(db, file, config->cache_size);
+	} else {
+		db_init(db, file, config->page_size, config->pool_size, config->cache_size);
+	}
 	return db;
+error:
+	exit(-1);
 }
 
 int main() {
 	struct DB db;
-	db_init(&db, "mydb", 512, 128*1024*1024, 16*1024*1024);
+	db_init(&db, "mydb", 2048, 128*1024*1024, 16*1024*1024);
 	cache_print(db.pool->cache);
 	db_insert(&db, "1234", "Hello, world1", 13);
 	db_insert(&db, "1235", "Hello, world2", 13);
