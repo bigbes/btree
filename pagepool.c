@@ -91,6 +91,7 @@ static inline ssize_t bitmask_load(struct PagePool *pp) {
 	log_info("Load bitmask");
 	ssize_t retval = pread(pp->fd, pp->bitmask, pp->page_size * bitmask_pages(pp), 0);
 	check_diskr(retval, pp->page_size * bitmask_pages(pp));
+	bitmask_it_init(pp);
 	return retval;
 error:
 	exit(-1);

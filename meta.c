@@ -25,10 +25,10 @@ error:
 	exit(-1);
 }
 
-int meta_dump(char *db_name, struct DBC *dbc) {
+int meta_dump(char *db_name, struct Metadata *md) {
 	int meta_fd = meta_prepare(db_name, 0);
-	ssize_t retval = write(meta_fd, (void *)dbc, sizeof(struct DBC));
-	check_diskw(retval, sizeof(struct DBC));
+	ssize_t retval = write(meta_fd, (void *)md, sizeof(struct Metadata));
+	check_diskw(retval, sizeof(struct Metadata));
 	meta_fd = close(meta_fd);
 	check(meta_fd != -1, "Failed to close file descriptor for meta");
 	return 0;
@@ -36,10 +36,10 @@ error:
 	exit(-1);
 }
 
-int meta_load(char *db_name, struct DBC *dbc) {
+int meta_load(char *db_name, struct Metadata *md) {
 	int meta_fd = meta_prepare(db_name, 1);
-	ssize_t retval = read(meta_fd, (void *)dbc, sizeof(struct DBC));
-	check_diskr(retval, sizeof(struct DBC));
+	ssize_t retval = read(meta_fd, (void *)md, sizeof(struct Metadata));
+	check_diskr(retval, sizeof(struct Metadata));
 	meta_fd = close(meta_fd);
 	check(meta_fd != -1, "Failed to close file descriptor for meta");
 	return 0;

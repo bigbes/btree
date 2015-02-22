@@ -1,8 +1,11 @@
 *.a
 *.so
-*.out.dSYM
 *.so.dSYM
+a.out
+a.out.dSYM
 *.pyc
 
-*.in
-*.out
+.*.swp
+
+mydb
+mydb.meta

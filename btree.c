@@ -37,7 +37,7 @@ uint32_t data_node_max_capacity(struct DB *db) {
 	return (uint32_t )(db->pool->page_size - sizeof(struct NodeHeader));
 }
 
-int dbi_init(struct DB *db, char *db_name, uint16_t page_size,
+static int dbi_init(struct DB *db, char *db_name, uint16_t page_size,
 	     pageno_t pool_size, size_t cache_size) {
 	memset(db, 0, sizeof(struct DB));
 	db->db_name = db_name;
@@ -47,6 +47,8 @@ int dbi_init(struct DB *db, char *db_name, uint16_t page_size,
 	
 	db->top = (struct BTreeNode *)malloc(sizeof(struct BTreeNode));
 	check_mem(db->top, sizeof(struct BTreeNode));
+
+	db->lsn = 0;
 	
 	return 0;
 error:
@@ -74,23 +76,22 @@ int db_init(struct DB *db, char *db_name, uint16_t page_size,
 	node_btree_load(db, db->top, 0);
 	db->top->h->flags = IS_TOP | IS_LEAF;
 
-	struct DBC dbc = {page_size, pool_size, cache_size};
-	meta_dump(db_name, &dbc);
+	struct Metadata md = {pool_size, page_size, db->top->h->page};
+	meta_dump(db_name, &md);
 	return 0;
 }
 
 int db_load(struct DB *db, char *db_name, size_t cache_size) {
 	log_info("Loading DB with name %s", db_name);
 
-	struct DBC dbc = {0,0,0};
-	meta_load(db_name, &dbc);
-	if (cache_size) dbc.cache_size = cache_size;
-	log_info("PoolSize: %zd, PageSize %zd", dbc.pool_size, dbc.page_size);
+	struct Metadata md = {0,0,0};
+	meta_load(db_name, &md);
+	log_info("PoolSize: %zd, PageSize %zd", md.pool_size, md.page_size);
 
-	dbi_init(db, db_name, dbc.page_size, dbc.pool_size, dbc.cache_size);
-	pool_init_old(db->pool, db_name, dbc.page_size, dbc.pool_size, dbc.cache_size);
+	dbi_init(db, db_name, md.page_size, md.pool_size, cache_size);
+	pool_init_old(db->pool, db_name, md.page_size, md.pool_size, cache_size);
 	db->btree_degree = btree_node_max_capacity(db);
-	node_btree_load(db, db->top, 0);
+	node_btree_load(db, db->top, md.header_page);
 
 	return 0;
 }
@@ -212,7 +213,7 @@ int db_put(struct DB *db, void *key, size_t key_len,
 }
 
 struct DB *dbcreate(char *file, struct DBC *config) {
-	struct DB *db = (struct DB *)malloc(sizeof(struct DB));
+	struct DB *db = (struct DB *)calloc(1, sizeof(struct DB));
 	int db_exists = access(file, F_OK);
 	int dbmeta_exists = meta_check(file);
 	if (db_exists == 0) {
@@ -227,9 +228,12 @@ error:
 }
 
 int main() {
-	struct DB db;
-	db_init(&db, "mydb", 2048, 128*1024*1024, 16*1024*1024);
+	struct DBC dbc = {128*1024*1024, 2046, 16*1024*1024};
+	struct DB *dbn = dbcreate("mydb", &dbc);
+	struct DB db = *dbn;
+	/*db_init(&db, "mydb", 2048, 128*1024*1024, 16*1024*1024);*/
 	cache_print(db.pool->cache);
+	db_print(&db);
 	db_insert(&db, "1234", "Hello, world1", 13);
 	db_insert(&db, "1235", "Hello, world2", 13);
 	db_insert(&db, "1236", "Hello, world3", 13);
