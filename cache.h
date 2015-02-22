@@ -47,7 +47,7 @@ int 		  cachei_page_free    (struct CacheElem *elem );
 
 #ifdef    LRU
 #  include "lru.h"
-#  define  cache_page_get(cache, page) lru_page_get(cache, page)
+#  define  cache_page_get(cache, page)  lru_page_get(cache, page)
 #  define  cache_page_free(cache, page) lru_page_free(cache, page)
 #endif /* LRU */
 
