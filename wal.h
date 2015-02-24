@@ -47,8 +47,7 @@ struct WALHeader3 {
 #define WALHEADER2_INIT(...) { .magic = 0xd5ab0bac, ## __VA_ARGS__ }
 #define WALHEADER3_INIT(...) { .magic = 0xd5ab0bad, ## __VA_ARGS__ }
 
-static int wal_write_begin(
-		struct DB *db, int8_t op_type, void *key,
+int wal_write_begin(struct DB *db, int8_t op_type, void *key,
 		size_t key_size, void *val, size_t val_size);
 int wal_write_append(struct DB *db, pageno_t page);
 int wal_write_finish(struct DB *db);

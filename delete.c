@@ -1,10 +1,11 @@
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
 #include "node.h"
-#include "assert.h"
 #include "btree.h"
 #include "delete.h"
+#include "wal.h"
 
 static int btreei_delete_replace_max(struct DB *db, struct BTreeNode *node,
 		size_t pos, struct BTreeNode *left) {
@@ -112,6 +113,7 @@ static int btreei_transfuse_to_right(struct DB *db, struct BTreeNode *node,
 }
 
 int btreei_delete(struct DB *db, struct BTreeNode *node, void *key) {
+	wal_write_begin(db, OP_DELETE, key, strlen(key), NULL, 0);
 	int pos = 0;
 	int cmp = 0;
 	while (pos < node->h->size && ((cmp =
@@ -190,5 +192,6 @@ int btreei_delete(struct DB *db, struct BTreeNode *node, void *key) {
 		btreei_delete(db, &kid, key);
 		// free(kid);
 	}
+	wal_write_finish(db);
 	return 0;
 }

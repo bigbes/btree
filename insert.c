@@ -1,10 +1,11 @@
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
 #include "node.h"
-#include "assert.h"
 #include "btree.h"
 #include "insert.h"
+#include "wal.h"
 
 /**
  * @brief  Insert data into prepared Node
@@ -158,6 +159,7 @@ static int btreei_split_node(struct DB *db,
  */
 int btreei_insert(struct DB *db, struct BTreeNode *node,
 		  char *key, char *val, int val_len) {
+	wal_write_begin(db, OP_INSERT, key, strlen(key), val, val_len);
 	if (node->h->flags & IS_TOP && NODE_FULL(db, node)) /* UNLIKELY */
 		btreei_split_node(db, NULL, node);
 	size_t pos =  0;
@@ -170,31 +172,32 @@ int btreei_insert(struct DB *db, struct BTreeNode *node,
 	}
 	if (cmp == 0) {
 		btreei_replace_data(db, node, val, val_len, pos);
-		return 0;
-	}
-	if (node->h->flags & IS_LEAF) {
-		btreei_insert_into_node_ss(db, node, key, val, val_len, pos, 0);
 	} else {
-		struct BTreeNode child;
-		node_btree_load(db, &child, node->chld[pos]);
-		if (NODE_FULL(db, (&child))) {
-			btreei_split_node(db, node, &child);
-			if (strncmp(NODE_KEY_POS(node, pos),
-				    key, BTREE_KEY_LEN) > 0) {
-				btreei_insert(db, &child, key, val, val_len);
-			} else {
-				struct BTreeNode rnode;
-				node_btree_load(db, &rnode, node->chld[pos+1]);
-				btreei_insert(db, &rnode, key, val, val_len);
-				node_btree_dump(db, &rnode);
-				node_free(db, &rnode);
-			}
+		if (node->h->flags & IS_LEAF) {
+			btreei_insert_into_node_ss(db, node, key, val, val_len, pos, 0);
 		} else {
-			btreei_insert(db, &child, key, val, val_len);
+			struct BTreeNode child;
+			node_btree_load(db, &child, node->chld[pos]);
+			if (NODE_FULL(db, (&child))) {
+				btreei_split_node(db, node, &child);
+				if (strncmp(NODE_KEY_POS(node, pos),
+					key, BTREE_KEY_LEN) > 0) {
+					btreei_insert(db, &child, key, val, val_len);
+				} else {
+					struct BTreeNode rnode;
+					node_btree_load(db, &rnode, node->chld[pos+1]);
+					btreei_insert(db, &rnode, key, val, val_len);
+					node_btree_dump(db, &rnode);
+					node_free(db, &rnode);
+				}
+			} else {
+				btreei_insert(db, &child, key, val, val_len);
+			}
+			node_btree_dump(db, &child);
+			node_free(db, &child);
 		}
-		node_btree_dump(db, &child);
-		node_free(db, &child);
 	}
+	wal_write_finish(db);
 	return 0;
 }
 

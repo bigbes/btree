@@ -76,6 +76,10 @@ static int wali_write_begin(struct WAL *wal, int8_t op_type, void *key,
 	return 0;
 }
 
+int wal_write_begin(struct DB *db, int8_t op_type, void *key,
+	            size_t key_size, void *val, size_t val_size) {
+	return wali_write_begin(db->wal, op_type, key, key_size, val, val_size);
+}
 /* struct WALHeader2 {
  * 	int32_t magic = 0xd5ab0bac;
  * }
@@ -116,8 +120,7 @@ int wal_write_append(struct DB *db, pageno_t page) {
 	struct CacheElem *elem = NULL;
 	HASH_FIND_INT(db->pool->cache->hash, &page, elem);
 	check(elem != NULL, "Can't find needed page")
-	wali_write_append(db->wal, elem->cache, elem->prev);
-	return elem->cache;
+	return wali_write_append(db->wal, elem->cache, elem->prev);
 error:
 	exit(-1);
 }
@@ -149,12 +152,19 @@ static int wali_write_finish(struct WAL *wal) {
 	return 0;
 }
 
+
+int wal_write_finish(struct DB *db) {
+	return wali_write_finish(db->wal);
+}
+
 void *wal_loop(void *arg) {
 	struct WAL *wal = (struct WAL *)arg;
+	log_info("Creating WAL Thread");
 	while (1) {
-		usleep(1000);
-		if (wal->list_head == NULL)
+		if (wal->list_head == NULL) {
+			usleep(100);
 			continue;
+		}
 		struct WALElem *elem = wal->list_head;
 		pthread_mutex_lock(&elem->used);
 		wali_list_dequeue(wal);
