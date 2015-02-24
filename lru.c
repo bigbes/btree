@@ -8,14 +8,10 @@
 #include <utlist.h>
 
 static int find_unused(struct CacheElem *l1, struct CacheElem *l2) {
-	return (l1->flag & CACHE_USED);
+	return (l1->flag & CACHE_USED) || (l1->flag & CACHE_DIRTY);
 }
 
-static int find_dirty(struct CacheElem *l1, struct CacheElem *l2) {
-	return !(l1->flag & CACHE_DIRTY);
-}
-
-struct CacheElem *lru_page_get_free(struct CacheBase *cache) {
+static struct CacheElem *lru_page_get_free(struct CacheBase *cache) {
 	struct CacheElem *retval = NULL;
 	LL_SEARCH(cache->list_tail, retval, NULL, find_unused);
 	if (retval == NULL) {
@@ -37,6 +33,7 @@ void *lru_page_get(struct CacheBase *cache, pageno_t page) {
 		elem->flag |= CACHE_USED;
 		HASH_ADD_INT(cache->hash, id, elem);
 		pool_read(cache->pool, page, elem->cache);
+		memcpy(elem->prev, elem->cache, cache->pool->page_size);
 		log_info("Getting page %zd from disk", page);
 	} else {
 		log_info("Getting page %zd from memory", page);
@@ -47,8 +44,8 @@ void *lru_page_get(struct CacheBase *cache, pageno_t page) {
 int lru_page_free(struct CacheBase *cache, pageno_t page) {
 	struct CacheElem *elem = NULL;
 	HASH_FIND_INT(cache->hash, &page, elem);
-	if (elem != NULL) {
-		elem->flag &= (-1 - CACHE_USED);
-	}
+	elem->flag |= CACHE_DIRTY;
+	memcpy(elem->prev, elem->cache, cache->pool->page_size);
+	if (elem != NULL) elem->flag &= (-1 - CACHE_USED);
 	return 0;
 }

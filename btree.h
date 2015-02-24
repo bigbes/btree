@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #define BTREE_KEY_LEN 128
 
@@ -38,6 +39,7 @@ struct PagePool {
 	void                *bitmask;
 	struct bit_iterator *it;
 	struct CacheBase    *cache;
+	pthread_t            dumper;
 };
 
 struct NodeHeader {
@@ -63,6 +65,7 @@ struct DB {
 	char             *db_name;
 	struct PagePool  *pool;
 	struct BTreeNode *top;
+	struct WAL       *wal;
 	size_t            lsn;
 	pageno_t          btree_degree;
 };

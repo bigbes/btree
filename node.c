@@ -4,6 +4,7 @@
 #include "btree.h"
 #include "cache.h"
 #include "pagepool.h"
+#include "wal.h"
 
 /**
  * @brief      Initialize btree node (cached version)
@@ -56,10 +57,18 @@ int node_data_load(struct DB *db, struct DataNode *node, pageno_t page) {
  */
 int node_btree_dump(struct DB *db, struct BTreeNode *node) {
 	log_info("Dumping BTreeNode %zd", node->h->page);
+	wal_write_append(db, node->h->page);
+	node->h->lsn = (db->lsn)++;
 	pageno_t page = node->h->page;
 	size_t to_write = db->pool->page_size;
 	return pool_write(db->pool, node->h, to_write, page, 0);
 }
+
+static int nodei_btree_dump(struct DB *db, struct BTreeNode *node) {
+	log_info("Dumping BTreeNode %zd into WAL", node->h->page);
+	return 0;
+}
+
 
 /**
  * @brief      Dump data node to disk
@@ -71,6 +80,7 @@ int node_btree_dump(struct DB *db, struct BTreeNode *node) {
  */
 int node_data_dump(struct DB *db, struct DataNode *node) {
 	log_info("Dumping DataNode %zd", node->h->page);
+	node->h->lsn = (db->lsn)++;
 	size_t complete = 0;
 	size_t to_write = node->h->size + sizeof(struct NodeHeader);
 	if ((void *)node->data != (void *)node->h + sizeof(struct NodeHeader))

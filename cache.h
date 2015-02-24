@@ -6,15 +6,21 @@
 
 #include <uthash.h>
 
+#include <pthread.h>
+
 struct CacheElem {
 	pageno_t id;
 	void *cache;
+	void *prev;
 	int flag;
 #define CACHE_USED  0x01
 #define CACHE_DIRTY 0x02
+#define CACHE_EMPTY 0x04
 	struct CacheElem *next;
-	struct CacheElem *dup_of;
 	UT_hash_handle hh;
+	pthread_mutex_t lock;
+	pthread_cond_t  rw_signal;
+	struct CacheElem *rq_next;
 };
 
 /*
@@ -28,9 +34,12 @@ struct CacheElem {
 struct CacheBase {
 	struct PagePool *pool;
 	size_t cache_size;
-	struct CacheElem *list_tail; /* That's where the most popular are */
-	struct CacheElem *list_head; /* That's where the least popular are*/
+	struct CacheElem *list_tail; /* That's where the most popular are  */
+	struct CacheElem *list_head; /* That's where the least popular are */
 	struct CacheElem *hash;      /* HashTable for fast search of preloaded pages */
+	struct CacheElem *readq;
+	struct CacheElem *readq_tail;
+	pthread_mutex_t   readq_lock;
 };
 
 int               cache_init         (struct CacheBase *cache, struct PagePool *pool,

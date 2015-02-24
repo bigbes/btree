@@ -25,6 +25,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>     /* flags */
 
+#include "wal.h"
+
 #ifdef DEBUG
 	#define malloc( calloc(1,
 #endif

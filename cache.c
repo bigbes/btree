@@ -1,4 +1,5 @@
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 
 #include "cache.h"
@@ -11,20 +12,27 @@ struct CacheElem *cachei_page_alloc(struct CacheBase *cache) {
 	struct CacheElem *elem = calloc(1, sizeof(struct CacheElem));
 	check_mem(elem, sizeof(struct CacheElem));
 	elem->cache = calloc(1, cache->pool->page_size);
+	elem->prev = calloc(1, cache->pool->page_size);
 	check_mem(elem->cache, cache->pool->page_size);
+	pthread_mutex_init(&elem->lock, NULL);
+	pthread_cond_init(&elem->rw_signal, NULL);
+	elem->next = elem->rq_next = NULL;
 	return elem;
 error:
 	exit(-1);
 }
 
 int cachei_page_free(struct CacheElem *elem) {
+	pthread_mutex_destroy(&elem->lock);
+	pthread_cond_destroy(&elem->rw_signal);
 	free(elem->cache);
+	free(elem->prev);
 	free(elem);
 	return 0;
 }
 
 int cache_init(struct CacheBase *cache, struct PagePool *pool, size_t cache_size) {
-	pageno_t count = floor(((double)cache_size)/pool->page_size);
+	pageno_t count = floor(((double)cache_size)/(pool->page_size*2));
 	cache->cache_size = cache_size;
 	cache->hash = NULL;
 	cache->pool = pool;
@@ -36,6 +44,7 @@ int cache_init(struct CacheBase *cache, struct PagePool *pool, size_t cache_size
 		cache->list_tail = elem;
 	}
 	cache_print(cache);
+	pthread_mutex_init(&cache->readq_lock, NULL);
 	return 0;
 }
 
@@ -49,6 +58,7 @@ int cache_free(struct CacheBase *cache) {
 		el1 = el2->next;
 		cachei_page_free(el2);
 	}
+	pthread_mutex_destroy(&cache->readq_lock);
 	cache->list_tail = cache->list_head = NULL;
 	cache->pool = NULL;
 	cache->hash = NULL;

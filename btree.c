@@ -21,6 +21,7 @@
 #include "btree.h"
 #include "cache.h"
 #include "pagepool.h"
+#include "wal.h"
 
 #include "insert.h"
 #include "search.h"
@@ -47,6 +48,9 @@ static int dbi_init(struct DB *db, char *db_name, uint16_t page_size,
 	
 	db->top = (struct BTreeNode *)malloc(sizeof(struct BTreeNode));
 	check_mem(db->top, sizeof(struct BTreeNode));
+
+	db->wal = (struct WAL *)malloc(sizeof(struct WAL));
+	check_mem(db->wal, sizeof(struct WAL));
 
 	db->lsn = 0;
 	
@@ -78,6 +82,8 @@ int db_init(struct DB *db, char *db_name, uint16_t page_size,
 
 	struct Metadata md = {pool_size, page_size, db->top->h->page};
 	meta_dump(db_name, &md);
+
+	wal_init(db, db->wal);
 	return 0;
 }
 
