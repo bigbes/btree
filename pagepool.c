@@ -194,6 +194,7 @@ int pool_write(struct PagePool *pp, void *data, size_t size,
 	assert(size + offset <= pp->page_size);
 	ssize_t retval = pwrite(pp->fd, data, size, pos * pp->page_size + offset);
 	check_diskpw(retval, pp->page_size, pos);
+	log_info("written");
 	return retval;
 error:
 	exit(-1);

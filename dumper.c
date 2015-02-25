@@ -13,7 +13,7 @@ static int dumperi_readq_check(struct CacheBase *cache) {
 	return res;
 }
 
-static int dumperi_readq_enqueue(struct CacheBase *cache, struct CacheElem *elem) {
+int dumper_readq_enqueue(struct CacheBase *cache, struct CacheElem *elem) {
 	pthread_mutex_lock(&cache->readq_lock);
 	if (cache->readq == NULL) {
 		cache->readq = cache->readq_tail = elem;
@@ -43,15 +43,15 @@ static int dumperi_readq_dequeue(struct CacheBase *cache) {
 
 static int dumper_page_dump(struct CacheBase *cache, struct CacheElem *elem) {
 	int retval = pool_write(cache->pool, elem->cache, cache->pool->page_size, elem->id, 0);
+	log_info("Page %zd has been dumped", elem->id);
 	return retval;
 }
 
 static int dumper_page_load(struct CacheBase *cache, struct CacheElem *elem) {
-	pthread_mutex_lock(&elem->lock);
 	int retval = pool_read(cache->pool, elem->id, elem->cache);
 	memcpy(elem->prev, elem->cache, cache->pool->page_size);
 	pthread_cond_signal(&elem->rw_signal);
-	pthread_mutex_unlock(&elem->lock);
+	log_info("Page %zd has been loaded", elem->id);
 	return retval;	
 }
 
@@ -65,7 +65,7 @@ int pthread_mutex_timedlock (pthread_mutex_t *mutex,
 
 	/* This is just to avoid a completely busy wait */
 	sleepytime.tv_sec = 0;
-	sleepytime.tv_nsec = 10000000; /* 10ms */
+	sleepytime.tv_nsec = 100000;
 
 	while ((retcode = pthread_mutex_trylock (mutex)) == EBUSY) {
 		gettimeofday (&timenow, NULL);
@@ -75,18 +75,19 @@ int pthread_mutex_timedlock (pthread_mutex_t *mutex,
 			return ETIMEDOUT;
 		}
 	nanosleep (&sleepytime, NULL);
-}
- 
- return retcode;
+	}
+	return retcode;
 }
 #endif /* pthread_mutex_timedlock */
 
 void *dumper_loop(void *arg) {
-	struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000};
+	int *procret = calloc(1, sizeof(int));
+	struct timespec ts = {.tv_sec = 0, .tv_nsec = 200000};
 
+	log_info("Creating RW Thread");
 	struct PagePool *pp = (struct PagePool *)arg;
 	struct CacheElem *elem_w = pp->cache->list_tail;
-	while (1) {
+	while (pp->dumper_enable) {
 		elem_w = elem_w->next;
 		if (elem_w == NULL)
 			elem_w =  pp->cache->list_tail;
@@ -107,15 +108,27 @@ void *dumper_loop(void *arg) {
 			pthread_mutex_unlock(&elem_r->lock);
 		}
 	}
-	return (void *)(0);
+	elem_w = pp->cache->list_tail;
+	while (elem_w) {
+		if (elem_w->flag & CACHE_DIRTY) {
+			pthread_mutex_lock(&elem_w->lock);
+			dumper_page_dump(pp->cache, elem_w);
+			elem_w->flag &= (-1 - CACHE_DIRTY);
+			pthread_mutex_unlock(&elem_w->lock);
+		}
+		elem_w = elem_w->next;
+	}
+	return procret;
 error:
-	return (void *)(1);
+	*procret = 1;
+	return procret;
 }
 
 int dumper_init (struct DB *db, struct PagePool *pp) {
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	pp->dumper_enable = 1;
 
 	pthread_create(&pp->dumper, &attr, dumper_loop, (void *)pp);
 
@@ -125,7 +138,11 @@ int dumper_init (struct DB *db, struct PagePool *pp) {
 
 int dumper_free (struct PagePool *pp) {
 	void *status;
+	pthread_mutex_lock(&pp->cache->readq_lock);
+	pp->dumper_enable = 0;
+	pthread_mutex_unlock(&pp->cache->readq_lock);
 	pthread_join(pp->dumper, &status);
 	log_err("dumper_loop exited with status %d", (int )(*(int *)status));
+	free(status);
 	return 0;
 }

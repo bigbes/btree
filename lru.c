@@ -3,6 +3,7 @@
 #include "dbg.h"
 #include "cache.h"
 #include "pagepool.h"
+#include "dumper.h"
 
 #include <uthash.h>
 #include <utlist.h>
@@ -24,28 +25,43 @@ static struct CacheElem *lru_page_get_free(struct CacheBase *cache) {
 	return retval;
 }
 
-void *lru_page_get(struct CacheBase *cache, pageno_t page) {
+struct CacheElem *lrui_page_get(struct CacheBase *cache, pageno_t page, int nolock) {
 	struct CacheElem *elem = NULL;
 	HASH_FIND_INT(cache->hash, &page, elem);
 	if (elem == NULL) {
 		elem = lru_page_get_free(cache);
+		if (!nolock) {
+			pthread_mutex_lock(&elem->lock); 
+			log_info("Locking page %zd", page);
+		}
 		elem->id = page;
 		elem->flag |= CACHE_USED;
 		HASH_ADD_INT(cache->hash, id, elem);
-		pool_read(cache->pool, page, elem->cache);
+		//pool_read(cache->pool, page, elem->cache);
+		dumper_readq_enqueue(cache, elem);
+		pthread_cond_wait(&elem->rw_signal, &elem->lock);
 		memcpy(elem->prev, elem->cache, cache->pool->page_size);
 		log_info("Getting page %zd from disk", page);
 	} else {
+		if (!nolock) {
+			pthread_mutex_lock(&elem->lock);
+			log_info("Locking page %zd", page);
+		}
 		log_info("Getting page %zd from memory", page);
 	}
-	return elem->cache;
+	return elem;
+}
+
+void *lru_page_get(struct CacheBase *cache, pageno_t page) {
+	return lrui_page_get(cache, page, 1)->cache;
 }
 
 int lru_page_free(struct CacheBase *cache, pageno_t page) {
 	struct CacheElem *elem = NULL;
 	HASH_FIND_INT(cache->hash, &page, elem);
-	elem->flag |= CACHE_DIRTY;
 	memcpy(elem->prev, elem->cache, cache->pool->page_size);
+	pthread_mutex_unlock(&elem->lock);
+	log_info("Unocking page %zd", page);
 	if (elem != NULL) elem->flag &= (-1 - CACHE_USED);
 	return 0;
 }

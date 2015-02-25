@@ -19,6 +19,7 @@ struct WALElem {
 
 struct WAL {
 	int fd;
+	int enabled;
 	size_t page_size;
 	pthread_t thread;
 	struct WALElem *list_head;

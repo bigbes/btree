@@ -59,16 +59,10 @@ int node_btree_dump(struct DB *db, struct BTreeNode *node) {
 	log_info("Dumping BTreeNode %zd", node->h->page);
 	wal_write_append(db, node->h->page);
 	node->h->lsn = (db->lsn)++;
-	pageno_t page = node->h->page;
-	size_t to_write = db->pool->page_size;
-	return pool_write(db->pool, node->h, to_write, page, 0);
-}
 
-static int nodei_btree_dump(struct DB *db, struct BTreeNode *node) {
-	log_info("Dumping BTreeNode %zd into WAL", node->h->page);
+	node->h->flags |= CACHE_DIRTY;
 	return 0;
 }
-
 
 /**
  * @brief      Dump data node to disk
@@ -80,17 +74,14 @@ static int nodei_btree_dump(struct DB *db, struct BTreeNode *node) {
  */
 int node_data_dump(struct DB *db, struct DataNode *node) {
 	log_info("Dumping DataNode %zd", node->h->page);
+	wal_write_append(db, node->h->page);
 	node->h->lsn = (db->lsn)++;
-	size_t complete = 0;
-	size_t to_write = node->h->size + sizeof(struct NodeHeader);
-	if ((void *)node->data != (void *)node->h + sizeof(struct NodeHeader))
-		to_write = sizeof(struct NodeHeader);
-	complete += pool_write(db->pool, node->h, to_write, node->h->page, 0);
-	if ((void *)node->data != (void *)node->h + sizeof(struct NodeHeader)) {
-		complete += pool_write(db->pool, node->data, node->h->size,
-				       node->h->page, sizeof(struct NodeHeader));
-	}
-	return complete;
+	struct CacheElem *elem = cachei_page_get(db->pool->cache, node->h->page);
+	if (elem)
+		elem->flag |= CACHE_DIRTY;
+	else
+		log_err("can't find");
+	return 0;
 }
 
 /**

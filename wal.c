@@ -158,11 +158,12 @@ int wal_write_finish(struct DB *db) {
 }
 
 void *wal_loop(void *arg) {
+	int *procret = calloc(1, sizeof(int));
 	struct WAL *wal = (struct WAL *)arg;
 	log_info("Creating WAL Thread");
-	while (1) {
+	while (wal->enabled) {
 		if (wal->list_head == NULL) {
-			usleep(100);
+			usleep(1000);
 			continue;
 		}
 		struct WALElem *elem = wal->list_head;
@@ -173,9 +174,10 @@ void *wal_loop(void *arg) {
 		pthread_cond_signal (&elem->written);
 		pthread_mutex_unlock(&elem->used);
 	}
-	return NULL;
+	return procret;
 error:
-	exit(-1);
+	*procret = 1;
+	return procret;
 }
 
 int wal_init (struct DB *db, struct WAL *wal) {
@@ -190,6 +192,7 @@ int wal_init (struct DB *db, struct WAL *wal) {
 	check(wal->fd != -1, "Failed to open file descriptor for WAL");
 	wal->list_head = wal->list_tail = NULL;
 	pthread_mutex_init(&wal->list_lock, NULL);
+	wal->enabled = 1;
 	pthread_create(&wal->thread, &attr, wal_loop, (void *)wal);
 
 	pthread_attr_destroy(&attr);
@@ -200,9 +203,12 @@ error:
 
 int wal_free(struct WAL *wal) {
 	void *status;
+	pthread_mutex_lock(&wal->list_lock);
+	wal->enabled = 0;
+	pthread_mutex_unlock(&wal->list_lock);
 	pthread_join(wal->thread, &status);
-	if ((int )(*(int *)status) != 0)
-		log_err("wal_loop exited with status %d", (int )(*(int *)status));
+	log_err("wal_loop exited with status %d", (int )(*(int *)status));
+	free(status);
 	pthread_mutex_destroy(&wal->list_lock);
 	wal->fd = close(wal->fd);
 	check(wal->fd != -1, "Failed to close file descriptor for WAL");

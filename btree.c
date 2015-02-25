@@ -22,6 +22,7 @@
 #include "cache.h"
 #include "pagepool.h"
 #include "wal.h"
+#include "dumper.h"
 
 #include "insert.h"
 #include "search.h"
@@ -77,13 +78,17 @@ int db_init(struct DB *db, char *db_name, uint16_t page_size,
 	dbi_init(db, db_name, page_size, pool_size, cache_size);
 	pool_init_new(db->pool, db_name, page_size, pool_size, cache_size);
 	db->btree_degree = btree_node_max_capacity(db);
+
+	
+	wal_init(db, db->wal);
+	dumper_init(db, db->pool);
+	
 	node_btree_load(db, db->top, 0);
 	db->top->h->flags = IS_TOP | IS_LEAF;
 
 	struct Metadata md = {pool_size, page_size, db->top->h->page};
 	meta_dump(db_name, &md);
 
-	wal_init(db, db->wal);
 	return 0;
 }
 
@@ -116,10 +121,15 @@ int db_free(struct DB *db) {
 			free(db->top);
 			db->top = NULL;
 		}
-	}
-	if (db->pool) {
-		pool_free(db->pool);
-		db->pool = NULL;
+		dumper_free(db->pool);
+		if (db->pool) {
+			pool_free(db->pool);
+			db->pool = NULL;
+		}
+		if (db->wal) {
+			wal_free(db->wal);
+			db->wal = NULL;
+		}
 	}
 	return 0;
 }
@@ -164,6 +174,7 @@ int node_print(struct BTreeNode *node) {
 	printf("Size: %d, Flags: ", node->h->size);
 	if (node->h->flags & IS_LEAF) printf("IS_LEAF");
 	printf("\n");
+	printf("LSN: %zd\n", node->h->lsn);
 	int i = 0;
 	for (i = 0; i < node->h->size; ++i) {
 		printf("Key: %s, Value: %zd", NODE_KEY_POS(node, i), node->vals[i]);
@@ -188,6 +199,7 @@ int print_tree(struct DB *db, struct BTreeNode *node) {
 		struct BTreeNode n;
 		node_btree_load(db, &n, node->chld[i]);
 		print_tree(db, &n);
+		node_free(db, &n);
 	}
 	return 0;
 }
@@ -234,10 +246,11 @@ error:
 }
 
 int main() {
-	struct DBC dbc = {128*1024*1024, 2046, 16*1024*1024};
-	struct DB *dbn = dbcreate("mydb", &dbc);
-	struct DB db = *dbn;
-	/*db_init(&db, "mydb", 2048, 128*1024*1024, 16*1024*1024);*/
+	//struct DBC dbc = {128*1024*1024, 2046, 16*1024*1024};
+	//struct DB *dbn = dbcreate("mydb", &dbc);
+	//struct DB db = *dbn;
+	struct DB db;
+	db_init(&db, "mydb", 2048, 128*1024*1024, 16*1024*1024);
 	cache_print(db.pool->cache);
 	db_print(&db);
 	db_insert(&db, "1234", "Hello, world1", 13);

@@ -40,6 +40,7 @@ struct PagePool {
 	struct bit_iterator *it;
 	struct CacheBase    *cache;
 	pthread_t            dumper;
+	int 		     dumper_enable;
 };
 
 struct NodeHeader {
